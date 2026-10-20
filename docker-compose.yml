@@ -1,0 +1,62 @@
+# Full-stack deployment for MG CommerceFoundry AI.
+# Quick start (from this folder):  cp .env.example .env  -> set SESSION_SECRET ->  docker compose up --build
+# Then seed the demo data:         docker compose exec api npm run seed -w @commercefoundry/api
+# Web: http://localhost:3000   API health: http://localhost:4000/health
+services:
+  mongodb:
+    image: mongo:7
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:27017:27017"
+    volumes:
+      - commercefoundry_mongodb:/data/db
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping').ok"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  api:
+    build:
+      context: "./Node Project"
+      dockerfile: apps/api/Dockerfile
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      API_PORT: 4000
+      WEB_ORIGIN: ${WEB_ORIGIN:-http://localhost:3000}
+      MONGODB_URI: mongodb://mongodb:27017/commercefoundry
+      SESSION_SECRET: ${SESSION_SECRET:-replace-this-with-a-unique-random-secret-of-32-chars}
+      TRUST_PROXY: ${TRUST_PROXY:-false}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      ANTHROPIC_MODEL: ${ANTHROPIC_MODEL:-claude-3-5-sonnet-latest}
+      AI_DEMO_FALLBACK: ${AI_DEMO_FALLBACK:-true}
+    ports:
+      - "127.0.0.1:4000:4000"
+    depends_on:
+      mongodb:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:4000/health').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+
+  web:
+    build:
+      context: "./Node Project"
+      dockerfile: apps/web/Dockerfile
+      args:
+        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:4000}
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:4000}
+    ports:
+      - "3000:3000"
+    depends_on:
+      api:
+        condition: service_healthy
+
+volumes:
+  commercefoundry_mongodb:
